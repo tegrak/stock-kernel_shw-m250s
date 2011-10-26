@@ -77,6 +77,8 @@ irqreturn_t g2d_irq(int irq, void *dev_id)
 
 	wake_up_interruptible(&g2d_dev->waitq);
 
+	atomic_set(&g2d_dev->in_use, 0);
+
 	return IRQ_HANDLED;
 }
 
@@ -171,8 +173,6 @@ static int g2d_ioctl(struct inode *inode, struct file *file, unsigned int cmd, u
 		
 		mutex_lock(&g2d_dev->lock);
 		
-		atomic_set(&g2d_dev->in_use, 1);
-
 		g2d_clk_enable(g2d_dev);
 
 		if (copy_from_user(&params, (struct g2d_params *)arg, sizeof(g2d_params))) {
@@ -185,6 +185,11 @@ static int g2d_ioctl(struct inode *inode, struct file *file, unsigned int cmd, u
 			g2d_dev->irq_handled = 1;
  			goto g2d_ioctl_done;
 		}
+
+		atomic_set(&g2d_dev->in_use, 1);
+
+		if (atomic_read(&g2d_dev->ready_to_run) == 0)
+			goto g2d_ioctl_done;
 
 		if (!(params.flag.render_mode & G2D_HYBRID_MODE)) {
 			if(!(file->f_flags & O_NONBLOCK)) {             
@@ -200,16 +205,18 @@ static int g2d_ioctl(struct inode *inode, struct file *file, unsigned int cmd, u
 
 		break;
 	default :
-		goto g2d_ioctl_done;
+		goto g2d_ioctl_done2;
+		
 		break;
 	}
 
 g2d_ioctl_done :
 
-	atomic_set(&g2d_dev->in_use, 0);
 	g2d_clk_disable(g2d_dev);
 
 	mutex_unlock(&g2d_dev->lock);
+	
+	atomic_set(&g2d_dev->in_use, 0);
 
 g2d_ioctl_done2 :
 

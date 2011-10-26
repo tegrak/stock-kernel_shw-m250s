@@ -950,6 +950,16 @@ static int max8997_muic_handle_attach(struct max8997_muic_info *info,
 		case CHGTYP_DEDICATED_CHGR:
 		case CHGTYP_500MA:
 		case CHGTYP_1A:
+			if (mdata->is_mhl_attached
+					&& mdata->is_mhl_attached() &&
+					info->cable_type == CABLE_TYPE_MHL) {
+				dev_info(info->dev, "%s: MHL(charging)\n",
+						__func__);
+				info->cable_type = CABLE_TYPE_MHL_VB;
+				ret = max8997_muic_set_charging_type(info,
+						false);
+				return ret;
+			}
 			dev_info(info->dev, "%s:TA\n", __func__);
 			info->cable_type = CABLE_TYPE_TA;
 			ret = max8997_muic_set_charging_type(info, false);

@@ -2748,22 +2748,16 @@ static u8 t7_config_e[] = {GEN_POWERCONFIG_T7,
 				255,	/* ACTVACQINT */
 				25 		/* ACTV2IDLETO: 25 * 200ms = 5s */};
 static u8 t8_config_e[] = {GEN_ACQUISITIONCONFIG_T8,
-				27, 0, 5, 1, 0, 0, 8, 8, 0, 0};
-#if 1 /* MXT224E_0V5_CONFIG */	
+				22, 0, 5, 1, 0, 0, 5, 35, 40, 55};
+
 /* NEXTTCHDI added */
 static u8 t9_config_e[] = {TOUCH_MULTITOUCHSCREEN_T9,
 				131, 0, 0, 19, 11, 0, 32, MXT224E_THRESHOLD, 2, 1,
 				10, 
 				15,		/* MOVHYSTI */
-				1, 11, MXT224_MAX_MT_FINGERS, 5, 40, 10, 31, 3,
+				1, 46, MXT224_MAX_MT_FINGERS, 5, 40, 10, 31, 3,
 				223, 1, 10, 10, 10, 10, 143, 40, 143, 80,
-				18, 15, 50, 50, 2};
-#else
-static u8 t9_config_e[] = {TOUCH_MULTITOUCHSCREEN_T9,
-				139, 0, 0, 19, 11, 0, 16, MXT224_THRESHOLD, 2, 1, 10, 3, 1,
-				0, MXT224_MAX_MT_FINGERS, 10, 40, 10, 31, 3,
-				223, 1, 10, 10, 10, 10, 143, 40, 143, 80, 18, 15, 50, 50};
-#endif
+				18, 15, 50, 50, 0};
 
 static u8 t15_config_e[] = {TOUCH_KEYARRAY_T15,
 				0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
@@ -2784,36 +2778,30 @@ static u8 t42_config_e[] = {PROCI_TOUCHSUPPRESSION_T42,
 				0, 0, 0, 0, 0, 0, 0, 0};
 
 static u8 t46_config_e[] = {SPT_CTECONFIG_T46,
-				0, 3, 16, 48, 0, 0, 1, 0, 0};
+				0, 3, 16, 32,/* to improve typing speed 48->40 */ 0, 0, 1, 0, 0};
 
 static u8 t47_config_e[] = {PROCI_STYLUS_T47,
 				0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 
-#if 1 /*MXT224E_0V5_CONFIG */
 static u8 t48_config_e_ta[] = {PROCG_NOISESUPPRESSION_T48,
-				1, 4, 0x50, 0, 0, 0, 0, 0, 0, 0,
-				0, 0, 0, 6, 6, 0, 0, 100, 4, 64,
+    3, 132, 0x50, 0, 0, 0, 0, 0, 10, 15,
+    0, 0, 0, 6, 6, 0, 0, 64, 4, 64,
 				10, 0, 20, 5, 0, 38, 0, 20, 0, 0,
-				0, 0, 0, 0, 16, 70, 2,/*blen=0,threshold=50*/
-				15,		/* MOVHYSTI */
+				0, 0, 0, 0, 0, 40, 2,/*blen=0,threshold=50*/
+				15,		/* MOVHYSTI */ 
 				1, 46,
-				10, 5, 40, 10, 0, 10, 10, 143, 40, 143,
-				80, 18, 15, 2};
+				10, 5, 40, 240, 245, 10, 10, 148, 50, 143,
+				80, 18, 15, 0};
 
 static u8 t48_config_e[] = {PROCG_NOISESUPPRESSION_T48,
-				1, 4, 0x40, 0, 0, 0, 0, 0, 0, 0,
-				0, 0, 0, 6, 6, 0, 0, 100, 4, 64,
+    3, 132, 0x40, 0, 0, 0, 0, 0, 10, 15,
+    0, 0, 0, 6, 6, 0, 0, 64, 4, 64,
 				10, 0, 20, 5, 0, 38, 0, 5, 0, 0,  /*byte 27 original value 20*/
 				0, 0, 0, 0, 32, MXT224E_THRESHOLD, 2,
 				15,		
-				1, 11,
+				1, 46,
 				MXT224_MAX_MT_FINGERS, 5, 40, 10, 10, 10, 10, 143, 40, 143,
-				80, 18, 15, 2};
-#else
-/*static u8 t48_config_e[] = {PROCG_NOISESUPPRESSION_T48,
-				1, 0, 40, 0, 0, 0, 0, 0, 0, 0, 0, 60, 31, 6,
-				50, 64, 100};*/
-#endif
+				80, 18, 15, 0};
 
 static u8 end_config_e[] = {RESERVED_T255};
 
@@ -4848,22 +4836,22 @@ static struct sec_jack_zone sec_jack_zones[] = {
 /* To support 3-buttons earjack */
 static struct sec_jack_buttons_zone sec_jack_buttons_zones[] = {
 	{
-		/* 0 <= adc <=150, stable zone */
+		/* 0 <= adc <= 170, stable zone */
 		.code		= KEY_MEDIA,
 		.adc_low	= 0,
-		.adc_high	= 145,
+		.adc_high	= 170,
 	},
 	{
-		/* 190 <= adc <= 320, stable zone */
+		/* 171 <= adc <= 370, stable zone */
 		.code		= KEY_PREVIOUSSONG,
-		.adc_low	= 150,
+		.adc_low	= 171,
 		.adc_high	= 370,
 	},
 	{
-		/* 420 <= adc <= 800, stable zone */
+		/* 371 <= adc <= 850, stable zone */
 		.code		= KEY_NEXTSONG,
-		.adc_low	= 400,
-		.adc_high	= 820,
+		.adc_low	= 371,
+		.adc_high	= 850,
 	},
 };
 

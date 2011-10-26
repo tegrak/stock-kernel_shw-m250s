@@ -18,7 +18,7 @@
 
 *
 
-* This program is distributed ¢®¡Æas is¢®¡¾ WITHOUT ANY WARRANTY of any
+* This program is distributed Â¡Â°as isÂ¡Â± WITHOUT ANY WARRANTY of any
 
 * kind, whether express or implied; without even the implied warranty
 
@@ -113,7 +113,8 @@
 //		0 = SCDT CHANGE		(reserved)
 #define	INTR_4_DESIRED_MASK				( BIT_2 | BIT_3 | BIT_4 | BIT_6) 
 #define	UNMASK_INTR_4_INTERRUPTS		I2C_WriteByte(SA_TX_Page0_Primary, 0x78, 0x00) 
-#define	MASK_INTR_4_INTERRUPTS	I2C_WriteByte(SA_TX_Page0_Primary, 0x78, INTR_4_DESIRED_MASK)		
+#define	MASK_INTR_4_INTERRUPTS	I2C_WriteByte(SA_TX_Page0_Primary, 0x78, INTR_4_DESIRED_MASK)
+#define	MASK_INTR_4_RGND		I2C_WriteByte(SA_TX_Page0_Primary, 0x78, BIT_6)
 
 //	Look for interrupts on INTR_1 (Register 0x71)
 //		7 = RSVD		(reserved)
@@ -501,11 +502,11 @@ bool SiiMhlTxChipInitialize ( void )
 	WriteInitialRegisterValues();
 
 	// Setup interrupt masks for all those we are interested.
-	MASK_INTR_4_INTERRUPTS;
-	MASK_INTR_1_INTERRUPTS;
-	//MASK_CBUS1_INTERRUPTS; 
-	//MASK_CBUS2_INTERRUPTS;
-
+	//MASK_INTR_4_INTERRUPTS;
+	//MASK_INTR_1_INTERRUPTS;
+	UNMASK_INTR_4_INTERRUPTS;
+	UNMASK_INTR_1_INTERRUPTS;
+	MASK_INTR_4_RGND;
 	SwitchToD3();
 
 	return TRUE;
@@ -1073,7 +1074,9 @@ static void InitCBusRegs( void )
 
 	TX_DEBUG_PRINT(("Drv: InitCBusRegs\n"));
 	// Increase DDC translation layer timer
-	I2C_WriteByte(SA_TX_CBUS_Primary, 0x07, 0x36);
+	/*I2C_WriteByte(SA_TX_CBUS_Primary, 0x07, 0x36);*/
+	I2C_WriteByte(SA_TX_CBUS_Primary, 0x07, 0x32);	/*for default DDC byte mode*/
+  
 	I2C_WriteByte(SA_TX_CBUS_Primary, 0x40, 0x03); 			// CBUS Drive Strength
 	I2C_WriteByte(SA_TX_CBUS_Primary, 0x42, 0x06); 			// CBUS DDC interface ignore segment pointer
 	I2C_WriteByte(SA_TX_CBUS_Primary, 0x36, 0x0C);
@@ -1161,7 +1164,7 @@ static void ReleaseUsbIdSwitchOpen ( void )
 //////////////////////////////////////////////////////////////////////////////
 
 void CbusWakeUpPulseGenerator(void)
-{	
+{
 	TX_DEBUG_PRINT(("Drv: CbusWakeUpPulseGenerator\n"));
 
 	if (!hrtimer_initialized) {
@@ -1350,17 +1353,10 @@ void	SwitchToD0( void )
 	WriteInitialRegisterValues();
 
 	// Setup interrupt masks for all those we are interested.
-#if 0
-	//UNMASK_INTR_4_INTERRUPTS;
-	UNMASK_INT4_INTERRUPTS;
-	//UNMASK_CBUS1_INTERRUPTS;
-	//UNMASK_CBUS2_INTERRUPTS;
-#else
-	//MASK_INTR_4_INTERRUPTS;
+	MASK_INTR_4_INTERRUPTS;
 	MASK_INTR_1_INTERRUPTS;
 	//MASK_CBUS1_INTERRUPTS;
 	//MASK_CBUS2_INTERRUPTS;
-#endif
 
 	// Force Power State to ON
 	I2C_WriteByte(SA_TX_Page0_Primary, 0x90, 0x25);
@@ -1837,15 +1833,17 @@ static void MhlCbusIsr( void )
 		//
 		SiiMhlTxGotMhlMscMsg( ReadByteCBUS( 0x18 ), ReadByteCBUS( 0x19 ) );
 	}
-	// MSC_REQ_DONE received.
-	if(cbusInt & BIT_4)
-	{
-		TX_DEBUG_PRINT(("Drv: MSC_REQ_DONE: %02X\n", (int) cbusInt));
-
-		mscCmdInProgress = FALSE;
-
-		SiiMhlTxMscCommandDone( ReadByteCBUS( 0x16 ) );
-	}
+/*
+*	// MSC_REQ_DONE received.
+*	if(cbusInt & BIT_4)
+*	{
+*		TX_DEBUG_PRINT(("Drv: MSC_REQ_DONE: %02X\n", (int) cbusInt));
+*
+*		mscCmdInProgress = FALSE;
+*
+*		SiiMhlTxMscCommandDone( ReadByteCBUS( 0x16 ) );
+*	}
+ */
 	if((cbusInt & BIT_5) || (cbusInt & BIT_6))	// MSC_REQ_ABORT or MSC_RESP_ABORT
 	{
 		gotData[0] = CBusProcessErrors(cbusInt);
@@ -1859,6 +1857,17 @@ static void MhlCbusIsr( void )
 
 		TX_DEBUG_PRINT(("Drv: Clear CBUS INTR_1: %02X\n", (int) cbusInt));
 	}
+
+	/*MSC_REQ_DONE received*/
+	if(cbusInt & BIT_4)
+	{
+		TX_DEBUG_PRINT(("Drv: MSC_REQ_DONE: %02X\n", (int) cbusInt));
+
+		mscCmdInProgress = FALSE;
+
+		SiiMhlTxMscCommandDone(ReadByteCBUS( 0x16 ));
+	}
+  
 	//
 	// Clear all interrupts that were raised even if we did not process
 	//
@@ -2092,6 +2101,7 @@ void SiiMhlTxGetEvents( byte *event, byte *eventParameter )
 else
 				{
   				printk("Key Code Error:%x \n",(int)mhlTxConfig.mscMsgData);
+					mhlTxConfig.mscSaveRcpKeyCode = mhlTxConfig.mscMsgData;
 					SiiMhlTxRcpeSend( 0x01 );
 				}
 				break;

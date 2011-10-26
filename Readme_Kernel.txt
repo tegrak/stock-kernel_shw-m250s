@@ -1,4 +1,4 @@
-HOW TO BUILD KERNEL 2.6.35 FOR SHW-M250S
+HOW TO BUILD KERNEL 2.6.35.7 FOR SHW-M250S.EJ04
 
 1. How to Build
 	- get Toolchain
@@ -8,11 +8,11 @@ HOW TO BUILD KERNEL 2.6.35 FOR SHW-M250S
 	- run build_kernel.sh
 	$ ./build_kernel.sh
 	
-2. Output files
+2. If the kernel is built successfully, you will find following files from the top directory:
 	- Kernel : Kernel/arch/arm/boot/zImage
 	- module : Kernel/drivers/*/*.ko
 	
 3. How to make .tar binary for downloading into target.
 	- change current directory to Kernel/arch/arm/boot
 	- type following command
-	$ tar cvf SHW-M250S_Kernel_Gingerbread.tar zImage
+	$ tar cvf SHW-M250S_KOR_M_SK_Kernel.tar zImage

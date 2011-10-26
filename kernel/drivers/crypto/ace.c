@@ -50,7 +50,7 @@
 
 #define CONFIG_ACE_AES_FALLBACK
 
-#undef CONFIG_ACE_BC_ASYNC
+#define CONFIG_ACE_BC_ASYNC
 #undef CONFIG_ACE_BC_IRQMODE
 
 #define CONFIG_ACE_HASH
@@ -153,6 +153,7 @@ struct s5p_ace_device {
 #if defined(CONFIG_ACE_BC_ASYNC)
 	struct crypto_queue		queue_bc;
 	struct tasklet_struct		task_bc;
+	int				rc_depth_bc;
 #endif
 
 	struct s5p_ace_aes_ctx		*ctx_bc;
@@ -170,6 +171,10 @@ enum {
 };
 
 static struct s5p_ace_device s5p_ace_dev;
+
+#if defined(CONFIG_ACE_BC_ASYNC)
+static void s5p_ace_bc_task(unsigned long data);
+#endif
 
 #define ACE_CLOCK_ON		0
 #define ACE_CLOCK_OFF		1
@@ -977,8 +982,13 @@ static int s5p_ace_aes_crypt_dma_start(struct s5p_ace_device *dev)
 #if !defined(CONFIG_ACE_BC_IRQMODE)
 run:
 #if defined(CONFIG_ACE_BC_ASYNC)
-	if (!ret)
+	if (!ret) {
+		if ((count <= 2048) && ((s5p_ace_dev.rc_depth_bc++) < 1))
+			/* fast path for relatively small data */
+			s5p_ace_bc_task((unsigned long)&s5p_ace_dev);
+		else
 		tasklet_schedule(&dev->task_bc);
+	}
 #endif
 #endif
 
@@ -1218,6 +1228,7 @@ static int s5p_ace_aes_crypt(struct ablkcipher_request *req, u32 encmode)
 	s5p_ace_resume_device(&s5p_ace_dev);
 	if (!test_and_set_bit(FLAGS_BC_BUSY, &s5p_ace_dev.flags)) {
 		s5p_ace_clock_gating(ACE_CLOCK_ON);
+		s5p_ace_dev.rc_depth_bc = 0;
 		s5p_ace_aes_handle_req(&s5p_ace_dev);
 	}
 
@@ -1253,9 +1264,10 @@ static int s5p_ace_aes_crypt(struct blkcipher_desc *desc,
 	s5p_ace_aes_set_encmode(sctx, encmode);
 
 	s5p_ace_resume_device(&s5p_ace_dev);
-	while (test_and_set_bit(FLAGS_BC_BUSY, &s5p_ace_dev.flags))
-		schedule();
 	s5p_ace_clock_gating(ACE_CLOCK_ON);
+	local_bh_disable();
+	while (test_and_set_bit(FLAGS_BC_BUSY, &s5p_ace_dev.flags))
+		udelay(1);
 
 	s5p_ace_dev.ctx_bc = sctx;
 
@@ -1268,8 +1280,9 @@ static int s5p_ace_aes_crypt(struct blkcipher_desc *desc,
 
 	s5p_ace_dev.ctx_bc = NULL;
 
-	s5p_ace_clock_gating(ACE_CLOCK_OFF);
 	clear_bit(FLAGS_BC_BUSY, &s5p_ace_dev.flags);
+	local_bh_enable();
+	s5p_ace_clock_gating(ACE_CLOCK_OFF);
 
 	if ((sctx->sfr_ctrl & ACE_AES_OPERMODE_MASK) != ACE_AES_OPERMODE_ECB)
 		memcpy(desc->info, sctx->sfr_semikey, AES_BLOCK_SIZE);
@@ -2377,3 +2390,4 @@ module_exit(s5p_ace_exit);
 MODULE_DESCRIPTION("S5P ACE(Advanced Crypto Engine) support");
 MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("Dong Jin PARK");
+

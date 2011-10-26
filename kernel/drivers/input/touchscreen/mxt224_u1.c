@@ -169,7 +169,7 @@ static unsigned char is_inputmethod;
 #endif
 
 
-static void mxt224_optical_gain(uint16_t dbg_mode);
+static void mxt224_optical_gain(u8 family_id, uint16_t dbg_mode);
 
 static int read_mem(struct mxt224_data *data, u16 reg, u8 len, u8 *buf)
 {
@@ -303,8 +303,8 @@ static unsigned int good_check_flag;
 static u8 atchcalst = 9;
 static u8 atchcalsthr = 30;
 
-static u8 atchfrccalthr = 0;
-static u8 atchfrccalratio = 0;
+static u8 atchfrccalthr = 40;
+static u8 atchfrccalratio = 55;
 
 static u8 cal_check_flag;
 
@@ -422,7 +422,7 @@ static void mxt224_ta_probe(int ta_status)
 
 	if (ta_status) {
 		threshold = 70;
-		threshold_e = 70;		
+		threshold_e = 40;		
 		calcfg_dis = T48_CALCFG_TA;
 		calcfg_en = T48_CALCFG_TA | 0x20;
 		noise_threshold = 40;
@@ -630,7 +630,7 @@ void check_chip_calibration(unsigned char one_touch_input_flag)
 		if ((tch_ch > 0) && (atch_ch == 0)) {  /* jwlee change. */
 			/* cal was good - don't need to check any more */
 			/* hugh 0312 */
-           if(auto_cal_flag == 0) {
+           if((auto_cal_flag == 0) && (copy_data->family_id != 0x81)) {
 				data_byte = 5;
 				ret = get_object_info(copy_data, GEN_ACQUISITIONCONFIG_T8, &size, &object_address);
 				write_mem(copy_data, object_address+4, 1, &data_byte);	/* TCHAUTOCAL 1sec */
@@ -667,7 +667,10 @@ void check_chip_calibration(unsigned char one_touch_input_flag)
 						printk(KERN_ERR"Error in mod_timer\n");
 #else
                     palm_chk_flag = 2; 
-                    auto_cal_flag = 0;
+
+					if(copy_data->family_id != 0x81){
+	                    auto_cal_flag = 0;
+					}
 #endif
 
 					if(copy_data->family_id == 0x80) {
@@ -681,7 +684,8 @@ void check_chip_calibration(unsigned char one_touch_input_flag)
 						write_mem(copy_data, object_address+9, 1, &atchfrccalratio);
 
 					}
-                    
+
+			if(copy_data->family_id != 0x81) { /* mxT224E */					
 					if ((copy_data->read_ta_status)&&(boot_or_resume == 1)) {
                     boot_or_resume = 0;
 						copy_data->read_ta_status(&ta_status_check);
@@ -690,6 +694,7 @@ void check_chip_calibration(unsigned char one_touch_input_flag)
 						if (ta_status_check==0)
 			            	mxt224_ta_probe(ta_status_check);
 		            }
+				}
 					/* dprintk("[TSP] reset acq atchcalst=%d, atchcalsthr=%d\n", acquisition_config.atchcalst, acquisition_config.atchcalsthr ); */
 
 					/*
@@ -1258,10 +1263,12 @@ static irqreturn_t mxt224_irq_thread(int irq, void *ptr)
 		check_chip_calibration(1);
 	}
 
+	#if 0 // Xtopher blocked, chaning of optical gain doesn't need after applying config at machine
 	if (!optiacl_gain) {
-		mxt224_optical_gain(QT_REFERENCE_MODE);
+		mxt224_optical_gain(data->family_id,QT_REFERENCE_MODE);
 		optiacl_gain = 1;
 	}
+	#endif
 
 	return IRQ_HANDLED;
 }
@@ -1683,7 +1690,7 @@ int read_all_data(uint16_t dbg_mode)
 	return state;
 }
 
-static void mxt224_optical_gain(uint16_t dbg_mode)
+static void mxt224_optical_gain(u8 family_id, uint16_t dbg_mode)
 {
 	u8 read_page, read_point;
 	uint16_t qt_refrence;
@@ -1726,7 +1733,16 @@ static void mxt224_optical_gain(uint16_t dbg_mode)
 			read_mem(copy_data, object_address+(u16)read_point, 2, data_buffer);
 			qt_refrence = ((uint16_t)data_buffer[1]<<8) + (uint16_t)data_buffer[0];
 
-			if (qt_refrence > 14500)
+			if (family_id == 0x81) 
+			{
+				qt_refrence = qt_refrence - 16384;
+			}
+			else
+			{
+
+			}
+			
+			if (qt_refrence > 14080)
 				reference_over = 1;
 
 			if ((read_page == 3) && (node == 16))
@@ -2236,6 +2252,23 @@ ssize_t set_tsp_for_inputmethod_store(struct device *dev, struct device_attribut
 		write_mem(copy_data, obj_address+(u16)register_address, size_one, &value);
 		read_mem(copy_data, obj_address+(u16)register_address, (u8)size_one, &val);
 		printk(KERN_ERR "T%d Byte%d is %d\n", 9, register_address, val);
+
+		if (copy_data->family_id==0x81) 
+		{
+			value = jump_limit;
+			register_address=51;
+			ret = get_object_info(copy_data, PROCG_NOISESUPPRESSION_T48, &size_one, &obj_address);
+			size_one = 1;
+			write_mem(copy_data, obj_address+(u16)register_address, size_one, &value);
+			read_mem(copy_data, obj_address+(u16)register_address, (u8)size_one, &val);
+			printk(KERN_ERR"[TSP]TA_probe MXT224E T%d Byte%d is %d\n",48,register_address,val);
+			
+			value = mrgthr;
+			register_address=42;
+			write_mem(copy_data, obj_address+(u16)register_address, size_one, &value);
+			read_mem(copy_data, obj_address+(u16)register_address, (u8)size_one, &val);
+			printk(KERN_ERR"[TSP]TA_probe MXT224E T%d Byte%d is %d\n",48,register_address,val);
+		}
 	} else if (*buf == '0' && (is_inputmethod)) {
 		is_inputmethod = 0;
 		jump_limit	= 18;
@@ -2256,7 +2289,26 @@ ssize_t set_tsp_for_inputmethod_store(struct device *dev, struct device_attribut
 		write_mem(copy_data, obj_address+(u16)register_address, size_one, &value);
 		read_mem(copy_data, obj_address+(u16)register_address, (u8)size_one, &val);
 		printk(KERN_ERR "T%d Byte%d is %d\n", 9, register_address, val);
+
+		if (copy_data->family_id==0x81) 
+		{
+			value = jump_limit;
+			register_address=51;
+			ret = get_object_info(copy_data, PROCG_NOISESUPPRESSION_T48, &size_one, &obj_address);
+			size_one = 1;
+			write_mem(copy_data, obj_address+(u16)register_address, size_one, &value);
+			read_mem(copy_data, obj_address+(u16)register_address, (u8)size_one, &val);
+			printk(KERN_ERR"[TSP]TA_probe MXT224E T%d Byte%d is %d\n",48,register_address,val);
+			
+			value = mrgthr;
+			register_address=42;
+			write_mem(copy_data, obj_address+(u16)register_address, size_one, &value);
+			read_mem(copy_data, obj_address+(u16)register_address, (u8)size_one, &val);
+			printk(KERN_ERR"[TSP]TA_probe MXT224E T%d Byte%d is %d\n",48,register_address,val);
+		}
+		
 	}
+
 
 	return 1;
 }
@@ -2647,8 +2699,8 @@ static int __devinit mxt224_probe(struct i2c_client *client, const struct i2c_de
 	} else if (data->family_id == 0x81)  {	/* tsp_family_id - 0x81 : MXT-224E */
 		tsp_config = pdata->config_e;
 		printk(KERN_ERR "[TSP] TSP chip is MXT224-E\n");
-		atchcalst = 8;/*9*/
-		atchcalsthr = 8;/*35*/
+		atchcalst = 5;/*8*/
+		atchcalsthr = 35;/*8*/
 		get_object_info(data, SPT_USERDATA_T38, &size_one, &obj_address);
 		size_one = 1;
 		read_mem(data, obj_address, (u8)size_one, &user_info_value);
@@ -2818,7 +2870,11 @@ if (device_create_file(sec_touchscreen, &dev_attr_mxt_touchtype) < 0)
 		printk(KERN_ERR "Failed to create device file(%s)!\n", dev_attr_set_firm_version.attr.name);
 
 #ifdef CONFIG_HAS_EARLYSUSPEND
-	data->early_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
+	if (copy_data->family_id==0x81) {
+		data->early_suspend.level = EARLY_SUSPEND_LEVEL_DISABLE_FB+3;
+	} else {
+		data->early_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
+	}
 	data->early_suspend.suspend = mxt224_early_suspend;
 	data->early_suspend.resume = mxt224_late_resume;
 	register_early_suspend(&data->early_suspend);

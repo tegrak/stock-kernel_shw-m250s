@@ -119,6 +119,8 @@ int g2d_init_regs(struct g2d_global *g2d_dev, g2d_params *params)
 	if (g2d_check_params(params) < 0)
 		return -1;
 
+	g2d_reset(g2d_dev);
+
 	/* source image */	
 	blt_cmd |= g2d_set_src_img(g2d_dev, src_rect, flag);    
 
@@ -225,6 +227,8 @@ int g2d_wait_for_finish(struct g2d_global *g2d_dev, g2d_params *params)
 {
 	if(atomic_read(&g2d_dev->is_mmu_faulted) == 1) {
 		FIMG2D_ERROR("error : sysmmu_faulted early\n");
+		FIMG2D_ERROR("faulted addr: 0x%x\n", g2d_dev->faulted_addr);
+		g2d_fail_debug(params);
 		atomic_set(&g2d_dev->is_mmu_faulted, 0);
 		return false;
 	}
@@ -247,11 +251,13 @@ int g2d_wait_for_finish(struct g2d_global *g2d_dev, g2d_params *params)
 			return false;
 		} else if(atomic_read(&g2d_dev->is_mmu_faulted) == 1) {
 			FIMG2D_ERROR("error : sysmmu_faulted but auto recoveried\n");
+			FIMG2D_ERROR("faulted addr: 0x%x\n", g2d_dev->faulted_addr);
+			g2d_fail_debug(params);
 			atomic_set(&g2d_dev->is_mmu_faulted, 0);
 			return false;
 		}
 	}
-	atomic_set(&g2d_dev->in_use, 0);
+	
 	return true;
 }
 

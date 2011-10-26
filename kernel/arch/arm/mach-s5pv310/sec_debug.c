@@ -38,6 +38,7 @@ enum sec_debug_reset_reason_t {
 	RR_W = 2,
 	RR_D = 3,
 	RR_N = 4,
+	RR_P = 5
 };
 
 struct sec_debug_mmu_reg_t {
@@ -127,9 +128,11 @@ struct sec_debug_core_t {
 static unsigned enable = 1;
 static unsigned enable_user = 0;
 static unsigned reset_reason = RR_N;
+unsigned int sec_ibl_ver = 0;
 module_param_named(enable, enable, uint, 0644);
 module_param_named(enable_user, enable_user, uint, 0644);
 module_param_named(reset_reason, reset_reason, uint, 0644);
+module_param_named(sec_ibl_ver, sec_ibl_ver, uint, 0644);
 
 static const char *gkernel_sec_build_info_date_time[] = {
 	__DATE__,
@@ -762,6 +765,8 @@ static int set_reset_reason_proc_show(struct seq_file *m, void *v)
 		seq_printf(m, "WPON\n");
 	else if(reset_reason == RR_D)
 		seq_printf(m, "DPON\n");
+	else if(reset_reason == RR_P)
+		seq_printf(m, "PPON\n");
 	else
 		seq_printf(m, "NPON\n");
 

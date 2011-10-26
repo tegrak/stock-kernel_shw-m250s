@@ -2630,11 +2630,15 @@ wl_iw_ch_to_chanspec(int ch, wl_join_params_t *join_params, int *join_params_siz
 		/* Pass target channel information to avoid extra scan */
 #ifdef ROAM_CHANNEL_CACHE
 		int n_channels;
+		int params_size = *join_params_size;
 
 		n_channels = get_roam_channel_list(ch, join_params->params.chanspec_list);
 		join_params->params.chanspec_num = htod32(n_channels);
-		*join_params_size += WL_ASSOC_PARAMS_FIXED_SIZE +
+
+		params_size += WL_ASSOC_PARAMS_FIXED_SIZE +
 			join_params->params.chanspec_num * sizeof(chanspec_t);
+		
+		*join_params_size = params_size;
 #else
 		join_params->params.chanspec_num = 1;
 		join_params->params.chanspec_list[0] = ch;
@@ -6719,6 +6723,7 @@ set_ap_cfg(struct net_device *dev, struct ap_profile *ap)
 		/* add this line here */
 		dev_wlc_intvar_set(dev, "wme", 0);
 		dev_wlc_intvar_set(dev, "arpoe", 0);
+		dev_wlc_intvar_set(dev, "vlan_mode", 0);
 
 		updown = 1;
 		if ((res = dev_wlc_ioctl(dev, WLC_UP, &updown, sizeof(updown))) < 0) {
@@ -7800,6 +7805,70 @@ static int wl_iw_get_roam_scan_period(
 
 	return error;
 }
+
+static int
+wl_iw_set_country_rev(
+	struct net_device *dev,
+	struct iw_request_info *info,
+	union iwreq_data *wrqu,
+	char *extra
+)
+{
+	char country_code[WLC_CNTRY_BUF_SZ];
+	int rev = 0;
+	int error = 0;
+	wl_country_t cspec;
+
+	memset(country_code, 0, sizeof(country_code));
+
+	WL_ERROR(("extra: %s\n", extra));
+
+	sscanf(extra+sizeof("SETCOUNTRYREV"), "%s %d", country_code, &rev);
+	WL_ERROR(("%s: country_code = %s, rev = %d\n", __FUNCTION__, country_code, rev));
+
+	memcpy(cspec.country_abbrev, country_code, sizeof(country_code));
+	memcpy(cspec.ccode, country_code, sizeof(country_code));
+	cspec.rev = rev;
+
+	error = dev_wlc_bufvar_set(dev, "country", (char *)&cspec, sizeof(wl_country_t));
+
+	if (error) {
+		WL_ERROR(("%s: set country '%s/%d' failed code %d\n", __FUNCTION__, cspec.ccode, cspec.rev, error));
+	} else {
+		WL_TRACE(("%s: set country '%s/%d'\n", __FUNCTION__, cspec.ccode, cspec.rev));
+	}
+
+	return error;
+}
+
+static int
+wl_iw_get_country_rev(
+	struct net_device *dev,
+	struct iw_request_info *info,
+	union iwreq_data *wrqu,
+	char *extra
+)
+{
+	char country_code[WLC_CNTRY_BUF_SZ];
+	int error;
+	char *p = extra;
+	wl_country_t cspec;
+
+	error = dev_wlc_bufvar_get(dev, "country", (char *)&cspec, sizeof(wl_country_t));
+
+	if (error) {
+		WL_ERROR(("%s: get country failed code %d\n", __FUNCTION__, error));
+	} else {
+		WL_TRACE(("%s: get country '%c%c %d'\n", __FUNCTION__, cspec.ccode[0], cspec.ccode[1], cspec.rev));
+	}
+	
+	if (extra) {
+		p += snprintf(p, MAX_WX_STRING, "%c%c %d", cspec.ccode[0], cspec.ccode[1], cspec.rev);
+		wrqu->data.length = p - extra + 1;
+	}
+
+	return error;
+}
 #endif
 
 static int
@@ -7916,6 +7985,10 @@ wl_iw_set_priv(
 		    ret = wl_iw_set_roam_scan_period(dev, info, (union iwreq_data *)dwrq, extra);
 	    else if (strnicmp(extra, "GETROAMSCANPERIOD", strlen("GETROAMSCANPERIOD")) == 0)
 		    ret = wl_iw_get_roam_scan_period(dev, info, (union iwreq_data *)dwrq, extra);
+	    else if (strnicmp(extra, "SETCOUNTRYREV", strlen("SETCOUNTRYREV")) == 0)
+			ret = wl_iw_set_country_rev(dev, info, (union iwreq_data *)dwrq, extra);
+	    else if (strnicmp(extra, "GETCOUNTRYREV", strlen("GETCOUNTRYREV")) == 0)
+			ret = wl_iw_get_country_rev(dev, info, (union iwreq_data *)dwrq, extra);
 #endif
 #endif
 	    /* Lin - Google put it here */
@@ -8488,7 +8561,7 @@ wl_iw_event(struct net_device *dev, wl_event_msg_t *e, void* data)
 
 	net_os_wake_lock(dev);
 
-	if ((event_type != WLC_E_TRACE) && (event_type != WLC_E_SCAN_COMPLETE))
+ 	if ((event_type != WLC_E_TRACE) && (event_type != WLC_E_SCAN_COMPLETE))
 		WL_TRACE(("%s: dev=%s event=%d \n", __FUNCTION__, dev->name, event_type));
 
 	/* Different Events may pointed to the different structures.
