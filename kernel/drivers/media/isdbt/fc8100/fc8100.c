@@ -28,7 +28,7 @@ int dmb_open (struct inode *inode, struct file *filp);
 loff_t dmb_llseek (struct file *filp, loff_t off, int whence);
 ssize_t dmb_read (struct file *filp, char *buf, size_t count, loff_t *f_pos);
 ssize_t dmb_write (struct file *filp, const char *buf, size_t count, loff_t *f_pos);
-int dmb_ioctl (struct inode *inode, struct file *filp, unsigned int cmd, unsigned long arg);
+static long dmb_ioctl (struct file *filp, unsigned int cmd, unsigned long arg);
 int dmb_release (struct inode *inode, struct file *filp);
 
 /* GPIO Setting */
@@ -39,9 +39,9 @@ void dmb_hw_deinit(void);
 static struct file_operations dmb_fops = {
 	.owner		= THIS_MODULE,
 	.llseek		= dmb_llseek,
-	.read 		= dmb_read,
+	.read		= dmb_read,
 	.write		= dmb_write,
-	.ioctl		= dmb_ioctl,
+	.unlocked_ioctl		= dmb_ioctl,
 	.open		= dmb_open,
 	.release	= dmb_release,
 };
@@ -83,7 +83,7 @@ ssize_t dmb_write (struct file *filp, const char *buf, size_t count, loff_t *f_p
 	return 0x43;
 }
 
-int dmb_ioctl (struct inode *inode, struct file *filp, unsigned int cmd, unsigned long arg)
+static long dmb_ioctl (struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	s32 res = BBM_NOK;
 	int status = 0;
@@ -171,7 +171,14 @@ int dmb_ioctl (struct inode *inode, struct file *filp, unsigned int cmd, unsigne
 		PRINTF(0, " copy to user or copy from user : ERROR..\n");
 		return -EINVAL;
 	}
-	return 0;
+
+	/* return status */
+	if (res < 0)
+			res = -BBM_NOK;
+	else
+			res = BBM_OK;
+
+	return res;
 }
 
 int dmb_release(struct inode *inode, struct file *filp)
@@ -193,6 +200,17 @@ void dmb_hw_setting(void)
 	gpio_set_value(GPIO_ISDBT_RST, GPIO_LEVEL_HIGH);
 }
 
+void dmb_init_hw_setting(void)
+{
+	s3c_gpio_cfgpin(GPIO_ISDBT_SDA_28V, S3C_GPIO_INPUT);
+	s3c_gpio_setpull(GPIO_ISDBT_SDA_28V, S3C_GPIO_PULL_NONE);
+	s3c_gpio_cfgpin(GPIO_ISDBT_SCL_28V, S3C_GPIO_INPUT);
+	s3c_gpio_setpull(GPIO_ISDBT_SCL_28V, S3C_GPIO_PULL_NONE);
+	s3c_gpio_cfgpin(GPIO_ISDBT_PWR_EN, S3C_GPIO_OUTPUT);
+	gpio_set_value(GPIO_ISDBT_PWR_EN, GPIO_LEVEL_LOW);
+	s3c_gpio_cfgpin(GPIO_ISDBT_RST, S3C_GPIO_OUTPUT);
+	gpio_set_value(GPIO_ISDBT_RST, GPIO_LEVEL_LOW);
+}
 
 void dmb_hw_init(void)
 {
@@ -219,7 +237,7 @@ int dmb_init(void)
 
 	PRINTF(0, "dmb dmb_init\n");
 
-	dmb_hw_setting();
+	dmb_init_hw_setting();
 /*
 	dmb_hw_init();
 */
@@ -251,4 +269,3 @@ module_init(dmb_init);
 module_exit(dmb_exit);
 
 MODULE_LICENSE("Dual BSD/GPL");
-

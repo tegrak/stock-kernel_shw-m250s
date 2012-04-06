@@ -17,17 +17,13 @@
 #include <linux/clk.h>
 #include <mach/map.h>
 #include <plat/clock.h>
-#include <plat/fb.h>
-#include <plat/regs-fb.h>
-#include <mach/mipi_ddi.h>
+#include <plat/fb-s5p.h>
+#include <plat/regs-fb-s5p.h>
 
 #include "s3cfb.h"
 
-extern int fimd_power_off;
-
 void s3cfb_check_line_count(struct s3cfb_global *ctrl)
 {
-	if (fimd_power_off) BUG();
 	int timeout = 30 * 5300;
 	int i = 0;
 
@@ -43,9 +39,18 @@ void s3cfb_check_line_count(struct s3cfb_global *ctrl)
 	}
 }
 
+int s3cfb_check_vsync_status(struct s3cfb_global *ctrl)
+{
+	u32 cfg = (readl(ctrl->regs + S3C_VIDCON1) & S3C_VIDCON1_VSTATUS_MASK);
+
+	if (cfg != S3C_VIDCON1_VSTATUS_ACTIVE && cfg != S3C_VIDCON1_VSTATUS_BACK)
+		return 1;
+	else
+		return 0;
+}
+
 int s3cfb_set_output(struct s3cfb_global *ctrl)
 {
-	if (fimd_power_off) BUG();
 	u32 cfg;
 
 	cfg = readl(ctrl->regs + S3C_VIDCON0);
@@ -55,9 +60,10 @@ int s3cfb_set_output(struct s3cfb_global *ctrl)
 		cfg |= S3C_VIDCON0_VIDOUT_RGB;
 	else if (ctrl->output == OUTPUT_ITU)
 		cfg |= S3C_VIDCON0_VIDOUT_ITU;
-	else if (ctrl->output == OUTPUT_I80LDI0)
+	else if (ctrl->output == OUTPUT_I80LDI0) {
 		cfg |= S3C_VIDCON0_VIDOUT_I80LDI0;
-	else if (ctrl->output == OUTPUT_I80LDI1)
+		cfg |= S3C_VIDCON0_DSI_ENABLE;
+	} else if (ctrl->output == OUTPUT_I80LDI1)
 		cfg |= S3C_VIDCON0_VIDOUT_I80LDI1;
 	else if (ctrl->output == OUTPUT_WB_RGB)
 		cfg |= S3C_VIDCON0_VIDOUT_WB_RGB;
@@ -100,91 +106,18 @@ int s3cfb_set_output(struct s3cfb_global *ctrl)
 
 	writel(cfg, ctrl->regs + S3C_VIDCON2);
 
-	return 0;
-}
-
-#ifdef CONFIG_FB_S3C_MIPI_LCD
-int s3cfb_set_free_run(struct s3cfb_global *ctrl, int onoff)
-{
-	if (fimd_power_off) BUG();
-	__u32 cfg;
-
-	cfg = readl(ctrl->regs + S3C_VIDCON0);
-	cfg &= ~S3C_VIDCON0_VCLKEN_MASK;
-
-	if (onoff)
-		cfg |= S3C_VIDCON0_VCLKEN_FREERUN;
-	else
-		cfg |= S3C_VIDCON0_VCLKEN_NORMAL;
-
-	writel(cfg, ctrl->regs + S3C_VIDCON0);
-
-	dev_dbg(ctrl->dev, "free_run = 0x%x\n", readl(ctrl->regs + S3C_VIDCON0));
-
-	return 0;
-}
-
-int s3cfb_enable_mipi_dsi_mode(struct s3cfb_global *ctrl, unsigned int enable)
-{
-	if (fimd_power_off) BUG();
-	unsigned int cfg;
-
-	cfg = readl(ctrl->regs + S3C_VIDCON0);
-
-	cfg &= ~(S3C_VIDCON0_DSI_ENABLE);
-
-	if (enable)
-		cfg |= S3C_VIDCON0_DSI_ENABLE;
-	else
-		cfg |= S3C_VIDCON0_DSI_DISABLE;
-
-	writel(cfg, ctrl->regs + S3C_VIDCON0);
-
-	dev_dbg(ctrl->dev, "0x%x\n", readl(ctrl->regs + S3C_VIDCON0));
-
-	return 0;
-}
-
-int s3cfb_set_cpu_interface_timing(struct s3cfb_global *ctrl, unsigned char ldi)
-{
-	if (fimd_power_off) BUG();
-	unsigned int cpu_if_time_reg, cpu_if_time_val;
-	struct s3cfb_lcd *lcd = NULL;
-	struct s3cfb_cpu_timing *cpu_timing = NULL;
-
-	lcd = ctrl->lcd;
-	if (lcd == NULL) {
-		dev_err(ctrl->dev, "s3cfb_lcd is NULL.\n");
-		return -1;
+	if (ctrl->output == OUTPUT_I80LDI0) {
+		cfg = readl(ctrl->regs + S3C_I80IFCONA0);
+		cfg |= ((1<<0)|(1<<8));
+		writel(cfg, ctrl->regs + S3C_I80IFCONA0);
 	}
 
-	cpu_timing = &lcd->cpu_timing;
-	if (cpu_timing == NULL) {
-		dev_err(ctrl->dev, "cpu_timing is NULL.\n");
-		return -1;
-	}
-
-	/* get offset of I80IFCON register. */
-	cpu_if_time_reg = (ldi == DDI_MAIN_LCD) ? S3C_I80IFCONA0 : S3C_I80IFCONA1;
-
-	cpu_if_time_val = readl(ctrl->regs + cpu_if_time_reg);
-
-	cpu_if_time_val = S3C_LCD_CS_SETUP(cpu_timing->cs_setup) |
-		S3C_LCD_WR_SETUP(cpu_timing->wr_setup) |
-		S3C_LCD_WR_ACT(cpu_timing->wr_act) |
-		S3C_LCD_WR_HOLD(cpu_timing->wr_hold) |
-		S3C_RSPOL_LOW | /* in case of LCD MIPI module */
-		/* S3C_RSPOL_HIGH | */
-		S3C_I80IFEN_ENABLE;
-
-	writel(cpu_if_time_val, ctrl->regs + cpu_if_time_reg);
-
 	return 0;
 }
 
+#ifdef CONFIG_FB_S5P_MIPI_DSIM
 void s3cfb_set_trigger(struct s3cfb_global *ctrl)
 {
-	if (fimd_power_off) BUG();
 	u32 reg = 0;
 
 	reg = readl(ctrl->regs + S3C_TRIGCON);
@@ -193,58 +126,10 @@ void s3cfb_set_trigger(struct s3cfb_global *ctrl)
 
 	writel(reg, ctrl->regs + S3C_TRIGCON);
 }
-
-u8 s3cfb_is_frame_done(struct s3cfb_global *ctrl)
-{
-	if (fimd_power_off) BUG();
-	u32 reg = 0;
-
-	reg = readl(ctrl->regs + S3C_TRIGCON);
-
-	/* frame done func is valid only when TRIMODE[0] is set to 1. */
-
-	return (((reg & (0x1 << 2)) == (0x1 << 2)) ? 1 : 0);
-}
-
-int s3cfb_set_auto_cmd_rate(struct s3cfb_global *ctrl,
-	unsigned char cmd_rate, unsigned char ldi)
-{
-	if (fimd_power_off) BUG();
-	unsigned int cmd_rate_val;
-	unsigned int i80_if_con_reg, i80_if_con_reg_val;
-
-	i80_if_con_reg = (ldi == DDI_MAIN_LCD) ? S3C_I80IFCONB0 : S3C_I80IFCONB1;
-
-	cmd_rate_val = (cmd_rate == DISABLE_AUTO_FRM) ? (0x0 << 0) :
-		(cmd_rate == PER_TWO_FRM) ? (0x1 << 0) :
-		(cmd_rate == PER_FOUR_FRM) ? (0x2 << 0) :
-		(cmd_rate == PER_SIX_FRM) ? (0x3 << 0) :
-		(cmd_rate == PER_EIGHT_FRM) ? (0x4 << 0) :
-		(cmd_rate == PER_TEN_FRM) ? (0x5 << 0) :
-		(cmd_rate == PER_TWELVE_FRM) ? (0x6 << 0) :
-		(cmd_rate == PER_FOURTEEN_FRM) ? (0x7 << 0) :
-		(cmd_rate == PER_SIXTEEN_FRM) ? (0x8 << 0) :
-		(cmd_rate == PER_EIGHTEEN_FRM) ? (0x9 << 0) :
-		(cmd_rate == PER_TWENTY_FRM) ? (0xa << 0) :
-		(cmd_rate == PER_TWENTY_TWO_FRM) ? (0xb << 0) :
-		(cmd_rate == PER_TWENTY_FOUR_FRM) ? (0xc << 0) :
-		(cmd_rate == PER_TWENTY_SIX_FRM) ? (0xd << 0) :
-		(cmd_rate == PER_TWENTY_EIGHT_FRM) ? (0xe << 0) : (0xf << 0);
-
-	i80_if_con_reg_val = readl(ctrl->regs + i80_if_con_reg);
-	i80_if_con_reg_val &= ~(0xf << 0);
-	i80_if_con_reg_val |= cmd_rate_val;
-	writel(i80_if_con_reg_val, ctrl->regs + i80_if_con_reg);
-
-	dev_dbg(ctrl->dev, "0x%x\n", ((u32) ctrl->regs) + i80_if_con_reg);
-
-	return 0;
-}
 #endif
 
 int s3cfb_set_display_mode(struct s3cfb_global *ctrl)
 {
-	if (fimd_power_off) BUG();
 	u32 cfg;
 
 	cfg = readl(ctrl->regs + S3C_VIDCON0);
@@ -257,7 +142,6 @@ int s3cfb_set_display_mode(struct s3cfb_global *ctrl)
 
 int s3cfb_display_on(struct s3cfb_global *ctrl)
 {
-	if (fimd_power_off) BUG();
 	u32 cfg;
 
 	cfg = readl(ctrl->regs + S3C_VIDCON0);
@@ -271,24 +155,26 @@ int s3cfb_display_on(struct s3cfb_global *ctrl)
 
 int s3cfb_display_off(struct s3cfb_global *ctrl)
 {
-	if (fimd_power_off) BUG();
-	u32 cfg;
+	u32 cfg, fimd_count = 0;
 
 	cfg = readl(ctrl->regs + S3C_VIDCON0);
-	cfg &= ~S3C_VIDCON0_ENVID_ENABLE;
-	writel(cfg, ctrl->regs + S3C_VIDCON0);
-
+	cfg |= S3C_VIDCON0_ENVID_ENABLE;
 	cfg &= ~S3C_VIDCON0_ENVID_F_ENABLE;
+
 	writel(cfg, ctrl->regs + S3C_VIDCON0);
 
-	dev_dbg(ctrl->dev, "global display is off\n");
-
-	return 0;
+	do {
+		if (++fimd_count > 2000000) {
+			dev_err(ctrl->dev, "FIMD off fail\n");
+			return 1;
+		}
+		if (!(readl(ctrl->regs + S3C_VIDCON0) & 0x1))
+			return 0;
+	} while (1);
 }
 
 int s3cfb_frame_off(struct s3cfb_global *ctrl)
 {
-	if (fimd_power_off) BUG();
 	u32 cfg;
 
 	cfg = readl(ctrl->regs + S3C_VIDCON0);
@@ -302,40 +188,26 @@ int s3cfb_frame_off(struct s3cfb_global *ctrl)
 
 int s3cfb_set_clock(struct s3cfb_global *ctrl)
 {
-	if (fimd_power_off) BUG();
 	struct s3c_platform_fb *pdata = to_fb_plat(ctrl->dev);
 	u32 cfg, maxclk, src_clk, vclk, div;
 
-	maxclk = 86 * 1000000;
+	/* spec is under 100MHz */
+	maxclk = 100 * 1000000;
 
 	cfg = readl(ctrl->regs + S3C_VIDCON0);
 
-#ifdef CONFIG_FB_S3C_MIPI_LCD
 	if (pdata->hw_ver == 0x70) {
 		cfg &= ~(S3C_VIDCON0_CLKVALUP_MASK |
 			S3C_VIDCON0_VCLKEN_MASK);
-		cfg |= (S3C_VIDCON0_CLKVALUP_START_FRAME |
-			S3C_VIDCON0_VCLKEN_NORMAL);
-
-		src_clk = clk_get_rate(ctrl->clock);
-		printk(KERN_INFO "FIMD src sclk = %d\n", src_clk);
-	} else {
-		cfg &= ~(S3C_VIDCON0_CLKSEL_MASK |
-			S3C_VIDCON0_CLKVALUP_MASK |
-			S3C_VIDCON0_VCLKEN_MASK |
-			S3C_VIDCON0_CLKDIR_MASK);
-		cfg |= (S3C_VIDCON0_CLKVALUP_START_FRAME |
-			S3C_VIDCON0_VCLKEN_NORMAL |
-			S3C_VIDCON0_CLKDIR_DIVIDED);
+#if defined(CONFIG_FB_S5P_MIPI_DSIM)
+		cfg |= (S3C_VIDCON0_CLKVALUP_ALWAYS |
+			S3C_VIDCON0_VCLKEN_FREERUN);
 #else
-	if (pdata->hw_ver == 0x70) {
-		cfg &= ~(S3C_VIDCON0_CLKVALUP_MASK |
-			S3C_VIDCON0_VCLKEN_MASK);
 		cfg |= (S3C_VIDCON0_CLKVALUP_ALWAYS |
 			S3C_VIDCON0_VCLKEN_NORMAL);
-
+#endif
 		src_clk = clk_get_rate(ctrl->clock);
-		printk(KERN_INFO "FIMD src sclk = %d\n", src_clk);
+		printk(KERN_DEBUG "FIMD src sclk = %d\n", src_clk);
 	} else {
 		cfg &= ~(S3C_VIDCON0_CLKSEL_MASK |
 			S3C_VIDCON0_CLKVALUP_MASK |
@@ -344,16 +216,16 @@ int s3cfb_set_clock(struct s3cfb_global *ctrl)
 		cfg |= (S3C_VIDCON0_CLKVALUP_ALWAYS |
 			S3C_VIDCON0_VCLKEN_NORMAL |
 			S3C_VIDCON0_CLKDIR_DIVIDED);
-#endif
+
 		if (strcmp(pdata->clk_name, "sclk_fimd") == 0) {
 			cfg |= S3C_VIDCON0_CLKSEL_SCLK;
 			src_clk = clk_get_rate(ctrl->clock);
-			printk(KERN_INFO "FIMD src sclk = %d\n", src_clk);
+			printk(KERN_DEBUG "FIMD src sclk = %d\n", src_clk);
 
 		} else {
 			cfg |= S3C_VIDCON0_CLKSEL_HCLK;
 			src_clk = ctrl->clock->parent->rate;
-			printk(KERN_INFO "FIMD src hclk = %d\n", src_clk);
+			printk(KERN_DEBUG "FIMD src hclk = %d\n", src_clk);
 		}
 	}
 
@@ -365,20 +237,22 @@ int s3cfb_set_clock(struct s3cfb_global *ctrl)
 		/* vclk = maxclk; */
 	}
 
-	div = src_clk / vclk;
-#ifndef CONFIG_FB_S3C_MIPI_LCD
-	if (src_clk % vclk)
-		div++;
-#endif
+	div = DIV_ROUND_CLOSEST(src_clk, vclk);
+
+	if (div == 0) {
+		dev_err(ctrl->dev, "div(%d) should be non-zero\n", div);
+		div = 1;
+	}
 
 	if ((src_clk/div) > maxclk)
 		dev_info(ctrl->dev, "vclk(%d) should be smaller than %d Hz\n",
 			src_clk/div, maxclk);
 
+	cfg &= ~S3C_VIDCON0_CLKVAL_F(0xff);
 	cfg |= S3C_VIDCON0_CLKVAL_F(div - 1);
 	writel(cfg, ctrl->regs + S3C_VIDCON0);
 
-	dev_dbg(ctrl->dev, "parent clock: %d, vclk: %d, vclk div: %d\n",
+	dev_info(ctrl->dev, "parent clock: %d, vclk: %d, vclk div: %d\n",
 			src_clk, vclk, div);
 
 	return 0;
@@ -386,7 +260,6 @@ int s3cfb_set_clock(struct s3cfb_global *ctrl)
 
 int s3cfb_set_polarity(struct s3cfb_global *ctrl)
 {
-	if (fimd_power_off) BUG();
 	struct s3cfb_lcd_polarity *pol;
 	u32 cfg;
 
@@ -395,7 +268,32 @@ int s3cfb_set_polarity(struct s3cfb_global *ctrl)
 
 	/* Set VCLK hold scheme */
 	cfg &= S3C_VIDCON1_FIXVCLK_MASK;
-	cfg |= S3C_VIDCON1_FIXVCLK_VCLK_RUN;
+	cfg |= S3C_VIDCON1_FIXVCLK_VCLK_RUN_VDEN_DIS;
+
+	if (pol->rise_vclk)
+		cfg |= S3C_VIDCON1_IVCLK_RISING_EDGE;
+
+	if (pol->inv_hsync)
+		cfg |= S3C_VIDCON1_IHSYNC_INVERT;
+
+	if (pol->inv_vsync)
+		cfg |= S3C_VIDCON1_IVSYNC_INVERT;
+
+	if (pol->inv_vden)
+		cfg |= S3C_VIDCON1_IVDEN_INVERT;
+
+	writel(cfg, ctrl->regs + S3C_VIDCON1);
+
+	return 0;
+}
+
+int s3cfb_set_polarity_only(struct s3cfb_global *ctrl)
+{
+	struct s3cfb_lcd_polarity *pol;
+	u32 cfg = 0;
+
+	pol = &ctrl->lcd->polarity;
+	cfg |= S3C_VIDCON1_FIXVCLK_VCLK_RUN_VDEN_DIS;
 
 	if (pol->rise_vclk)
 		cfg |= S3C_VIDCON1_IVCLK_RISING_EDGE;
@@ -416,7 +314,6 @@ int s3cfb_set_polarity(struct s3cfb_global *ctrl)
 
 int s3cfb_set_timing(struct s3cfb_global *ctrl)
 {
-	if (fimd_power_off) BUG();
 	struct s3cfb_lcd_timing *time;
 	u32 cfg;
 
@@ -444,10 +341,9 @@ int s3cfb_set_timing(struct s3cfb_global *ctrl)
 
 int s3cfb_set_lcd_size(struct s3cfb_global *ctrl)
 {
-	if (fimd_power_off) BUG();
 	u32 cfg = 0;
 
-#ifdef CONFIG_FB_S3C_WA101S
+#ifdef CONFIG_FB_S5P_WA101S
 	cfg |= S3C_VIDTCON2_HOZVAL(ctrl->lcd->width - 1 + 6);
 #else
 	cfg |= S3C_VIDTCON2_HOZVAL(ctrl->lcd->width - 1);
@@ -462,7 +358,6 @@ int s3cfb_set_lcd_size(struct s3cfb_global *ctrl)
 
 int s3cfb_set_global_interrupt(struct s3cfb_global *ctrl, int enable)
 {
-	if (fimd_power_off) BUG();
 	u32 cfg = 0;
 
 	cfg = readl(ctrl->regs + S3C_VIDINTCON0);
@@ -485,7 +380,6 @@ int s3cfb_set_global_interrupt(struct s3cfb_global *ctrl, int enable)
 
 int s3cfb_set_vsync_interrupt(struct s3cfb_global *ctrl, int enable)
 {
-	if (fimd_power_off) BUG();
 	u32 cfg = 0;
 
 	cfg = readl(ctrl->regs + S3C_VIDINTCON0);
@@ -506,7 +400,6 @@ int s3cfb_set_vsync_interrupt(struct s3cfb_global *ctrl, int enable)
 
 int s3cfb_get_vsync_interrupt(struct s3cfb_global *ctrl)
 {
-	if (fimd_power_off) BUG();
 	u32 cfg = 0;
 
 	cfg = readl(ctrl->regs + S3C_VIDINTCON0);
@@ -522,10 +415,9 @@ int s3cfb_get_vsync_interrupt(struct s3cfb_global *ctrl)
 }
 
 
-#ifdef CONFIG_FB_S3C_TRACE_UNDERRUN
+#ifdef CONFIG_FB_S5P_TRACE_UNDERRUN
 int s3cfb_set_fifo_interrupt(struct s3cfb_global *ctrl, int enable)
 {
-	if (fimd_power_off) BUG();
 	u32 cfg = 0;
 
 	cfg = readl(ctrl->regs + S3C_VIDINTCON0);
@@ -551,7 +443,6 @@ int s3cfb_set_fifo_interrupt(struct s3cfb_global *ctrl, int enable)
 
 int s3cfb_clear_interrupt(struct s3cfb_global *ctrl)
 {
-	if (fimd_power_off) BUG();
 	u32 cfg = 0;
 
 	cfg = readl(ctrl->regs + S3C_VIDINTCON1);
@@ -569,7 +460,6 @@ int s3cfb_clear_interrupt(struct s3cfb_global *ctrl)
 
 int s3cfb_channel_localpath_on(struct s3cfb_global *ctrl, int id)
 {
-	if (fimd_power_off) BUG();
 	struct s3c_platform_fb *pdata = to_fb_plat(ctrl->dev);
 	u32 cfg;
 
@@ -586,7 +476,6 @@ int s3cfb_channel_localpath_on(struct s3cfb_global *ctrl, int id)
 
 int s3cfb_channel_localpath_off(struct s3cfb_global *ctrl, int id)
 {
-	if (fimd_power_off) BUG();
 	struct s3c_platform_fb *pdata = to_fb_plat(ctrl->dev);
 	u32 cfg;
 
@@ -603,7 +492,6 @@ int s3cfb_channel_localpath_off(struct s3cfb_global *ctrl, int id)
 
 int s3cfb_window_on(struct s3cfb_global *ctrl, int id)
 {
-	if (fimd_power_off) BUG();
 	struct s3c_platform_fb *pdata = to_fb_plat(ctrl->dev);
 	u32 cfg;
 
@@ -624,7 +512,6 @@ int s3cfb_window_on(struct s3cfb_global *ctrl, int id)
 
 int s3cfb_window_off(struct s3cfb_global *ctrl, int id)
 {
-	if (fimd_power_off) BUG();
 	struct s3c_platform_fb *pdata = to_fb_plat(ctrl->dev);
 	u32 cfg;
 
@@ -646,7 +533,6 @@ int s3cfb_window_off(struct s3cfb_global *ctrl, int id)
 
 int s3cfb_win_map_on(struct s3cfb_global *ctrl, int id, int color)
 {
-	if (fimd_power_off) BUG();
 	u32 cfg = 0;
 
 	cfg |= S3C_WINMAP_ENABLE;
@@ -660,7 +546,6 @@ int s3cfb_win_map_on(struct s3cfb_global *ctrl, int id, int color)
 
 int s3cfb_win_map_off(struct s3cfb_global *ctrl, int id)
 {
-	if (fimd_power_off) BUG();
 	writel(0, ctrl->regs + S3C_WINMAP(id));
 
 	dev_dbg(ctrl->dev, "[fb%d] win map off\n", id);
@@ -670,7 +555,6 @@ int s3cfb_win_map_off(struct s3cfb_global *ctrl, int id)
 
 int s3cfb_set_window_control(struct s3cfb_global *ctrl, int id)
 {
-	if (fimd_power_off) BUG();
 	struct s3c_platform_fb *pdata = to_fb_plat(ctrl->dev);
 	struct fb_info *fb = ctrl->fb[id];
 	struct fb_var_screeninfo *var = &fb->var;
@@ -780,9 +664,19 @@ int s3cfb_set_window_control(struct s3cfb_global *ctrl, int id)
 	return 0;
 }
 
+int s3cfb_get_win_cur_buf_addr(struct s3cfb_global *ctrl, int id)
+{
+	dma_addr_t start_addr = 0;
+
+	start_addr = readl(ctrl->regs + S3C_VIDADDR_START0(id) + S3C_SHD_WIN_BASE);
+
+	dev_dbg(ctrl->dev, "[fb%d] start_addr: 0x%08x\n", id, start_addr);
+
+	return start_addr;
+}
+
 int s3cfb_set_buffer_address(struct s3cfb_global *ctrl, int id)
 {
-	if (fimd_power_off) BUG();
 	struct fb_fix_screeninfo *fix = &ctrl->fb[id]->fix;
 	struct fb_var_screeninfo *var = &ctrl->fb[id]->var;
 	struct s3c_platform_fb *pdata = to_fb_plat(ctrl->dev);
@@ -820,7 +714,6 @@ int s3cfb_set_buffer_address(struct s3cfb_global *ctrl, int id)
 
 int s3cfb_set_alpha_value(struct s3cfb_global *ctrl, int value)
 {
-	if (fimd_power_off) BUG();
 	writel(value, ctrl->regs + S3C_BLENDCON);
 
 	return 0;
@@ -828,7 +721,6 @@ int s3cfb_set_alpha_value(struct s3cfb_global *ctrl, int value)
 
 int s3cfb_set_alpha_blending(struct s3cfb_global *ctrl, int id)
 {
-	if (fimd_power_off) BUG();
 	struct s3c_platform_fb *pdata = to_fb_plat(ctrl->dev);
 	struct s3cfb_window *win = ctrl->fb[id]->par;
 	struct s3cfb_alpha *alpha = &win->alpha;
@@ -884,7 +776,6 @@ int s3cfb_set_alpha_blending(struct s3cfb_global *ctrl, int id)
 
 int s3cfb_set_window_position(struct s3cfb_global *ctrl, int id)
 {
-	if (fimd_power_off) BUG();
 	struct fb_var_screeninfo *var = &ctrl->fb[id]->var;
 	struct s3cfb_window *win = ctrl->fb[id]->par;
 	u32 cfg, shw;
@@ -913,7 +804,6 @@ int s3cfb_set_window_position(struct s3cfb_global *ctrl, int id)
 
 int s3cfb_set_window_size(struct s3cfb_global *ctrl, int id)
 {
-	if (fimd_power_off) BUG();
 	struct fb_var_screeninfo *var = &ctrl->fb[id]->var;
 	u32 cfg;
 
@@ -935,7 +825,6 @@ int s3cfb_set_window_size(struct s3cfb_global *ctrl, int id)
 
 int s3cfb_set_buffer_size(struct s3cfb_global *ctrl, int id)
 {
-	if (fimd_power_off) BUG();
 	struct s3c_platform_fb *pdata = to_fb_plat(ctrl->dev);
 	struct fb_var_screeninfo *var = &ctrl->fb[id]->var;
 	u32 offset = (var->xres_virtual - var->xres) * var->bits_per_pixel / 8;
@@ -964,7 +853,6 @@ int s3cfb_set_buffer_size(struct s3cfb_global *ctrl, int id)
 
 int s3cfb_set_chroma_key(struct s3cfb_global *ctrl, int id)
 {
-	if (fimd_power_off) BUG();
 	struct s3c_platform_fb *pdata = to_fb_plat(ctrl->dev);
 	struct s3cfb_window *win = ctrl->fb[id]->par;
 	struct s3cfb_chroma *chroma = &win->chroma;

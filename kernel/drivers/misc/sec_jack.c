@@ -38,7 +38,11 @@
 
 #define MAX_ZONE_LIMIT		10
 /* keep this value if you support double-pressed concept */
-#define SEND_KEY_CHECK_TIME_MS	20		/* 100ms */
+#ifdef CONFIG_TARGET_LOCALE_KOR
+#define SEND_KEY_CHECK_TIME_MS	20		/* 20ms - GB VOC in KOR*/
+#else
+#define SEND_KEY_CHECK_TIME_MS	40		/* 100ms */
+#endif
 #define WAKE_LOCK_TIME		(HZ * 5)	/* 5 sec */
 #define EAR_CHECK_LOOP_CNT	10
 
@@ -96,7 +100,7 @@ static struct gpio_event_input_info sec_jack_key_info = {
 	.info.func = gpio_event_input_func,
 	.info.no_suspend = true,
 	.type = EV_KEY,
-	.debounce_time.tv.nsec = SEND_KEY_CHECK_TIME_MS * NSEC_PER_MSEC,
+	.debounce_time.tv64 = SEND_KEY_CHECK_TIME_MS * NSEC_PER_MSEC,
 	.keymap = sec_jack_key_map,
 	.keymap_size = ARRAY_SIZE(sec_jack_key_map)
 };
@@ -117,10 +121,19 @@ static int sec_jack_get_adc_data(struct s3c_adc_client *padc)
 	int adc_max = 0;
 	int adc_min = 0xFFFF;
 	int adc_total = 0;
+	int adc_retry_cnt = 0;
 	int i;
 
 	for (i = 0; i < SEC_JACK_SAMPLE_SIZE; i++) {
 		adc_data = s3c_adc_read(padc, SEC_JACK_ADC_CH);
+
+		if (adc_data < 0) {
+
+			adc_retry_cnt++;
+
+			if (adc_retry_cnt > 10)
+				return adc_data;
+		}
 
 		if (i != 0) {
 			if (adc_data > adc_max)
@@ -252,10 +265,11 @@ static void sec_jack_set_type(struct sec_jack_info *hi, int jack_type)
 		/* micbias is left enabled for 4pole and disabled otherwise */
 		pdata->set_micbias_state(false);
 	}
-	/* if user inserted ear jack slowly, different jack event  can occur sometimes
-	  * because irq_thread is defined IRQ_ONESHOT, detach status can be ignored sometimes
-	  * so in that case, driver inform detach event to user side
-	  */
+	/* if user inserted ear jack slowly, different jack event can occur
+	 * sometimes because irq_thread is defined IRQ_ONESHOT, detach status
+	 * can be ignored sometimes so in that case, driver inform detach
+	 * event to user side
+	 */
 	switch_set_state(&switch_jack_detection, SEC_JACK_NO_DEVICE);
 
 	hi->cur_jack_type = jack_type;
@@ -266,8 +280,6 @@ static void sec_jack_set_type(struct sec_jack_info *hi, int jack_type)
 
 static void handle_jack_not_inserted(struct sec_jack_info *hi)
 {
-	struct sec_jack_platform_data *pdata = hi->pdata;
-
 	sec_jack_set_type(hi, SEC_JACK_NO_DEVICE);
 	hi->pdata->set_micbias_state(false);
 }
@@ -287,7 +299,11 @@ static void determine_jack_type(struct sec_jack_info *hi)
 
 	while (gpio_get_value(pdata->det_gpio) ^ npolarity) {
 		adc = sec_jack_get_adc_data(hi->padc);
+
 		pr_debug("%s: adc = %d\n", __func__, adc);
+
+		if (adc < 0)
+			break;
 
 		/* determine the type of headset based on the
 		 * adc value.  An adc value can fall in various
@@ -300,7 +316,8 @@ static void determine_jack_type(struct sec_jack_info *hi)
 		for (i = 0; i < size; i++) {
 			if (adc <= zones[i].adc_high) {
 				if (++count[i] > zones[i].check_count) {
-					sec_jack_set_type(hi, zones[i].jack_type);
+					sec_jack_set_type(hi,
+						 zones[i].jack_type);
 					return;
 				}
 				msleep(zones[i].delay_ms);
@@ -348,11 +365,11 @@ static irqreturn_t sec_jack_detect_irq_thread(int irq, void *dev_id)
 
 		if (loopcnt >= check_loop_cnt) {
 			if (!curr_data ^ npolarity) {
-			/* jack not detected. */
-			handle_jack_not_inserted(hi);
-			hi->det_status = false;
-			return IRQ_HANDLED;
-		}
+				/* jack not detected. */
+				handle_jack_not_inserted(hi);
+				hi->det_status = false;
+				return IRQ_HANDLED;
+			}
 			break;
 		}
 		msleep(20);
@@ -383,8 +400,9 @@ void sec_jack_buttons_work(struct work_struct *work)
 		input_report_key(hi->input_dev, hi->pressed_code, 0);
 		switch_set_state(&switch_sendend, 0);
 		input_sync(hi->input_dev);
-		pr_info("%s: keycode=%d, is released\n", __func__,
-			hi->pressed_code);
+		//pr_info("%s: keycode=%d, is released\n", __func__,
+		//	hi->pressed_code);
+		pr_info("sec_jack: bwork called...\n");
 		return;
 	}
 
@@ -398,8 +416,9 @@ void sec_jack_buttons_work(struct work_struct *work)
 			input_report_key(hi->input_dev, btn_zones[i].code, 1);
 			switch_set_state(&switch_sendend, 1);
 			input_sync(hi->input_dev);
-			pr_info("%s: keycode=%d, is pressed\n", __func__,
-				btn_zones[i].code);
+			//pr_info("%s: keycode=%d, is pressed\n", __func__,
+			//	btn_zones[i].code);
+			pr_info("sec_jack: bwork done...\n");
 			return;
 		}
 
@@ -434,7 +453,8 @@ static ssize_t select_jack_store(struct device *dev,
 	return size;
 }
 
-static DEVICE_ATTR(select_jack, S_IRUGO | S_IWUSR | S_IWGRP, select_jack_show, select_jack_store);
+static DEVICE_ATTR(select_jack, S_IRUGO | S_IWUSR | S_IWGRP,
+		select_jack_show, select_jack_store);
 
 static int sec_jack_probe(struct platform_device *pdev)
 {
@@ -448,7 +468,9 @@ static int sec_jack_probe(struct platform_device *pdev)
 		return -ENODEV;
 	}
 
-	if (!pdata->zones || !pdata->set_micbias_state || pdata->num_zones > MAX_ZONE_LIMIT) {
+	if (!pdata->zones
+		|| !pdata->set_micbias_state
+		|| pdata->num_zones > MAX_ZONE_LIMIT) {
 		pr_err("%s : need to check pdata\n", __func__);
 		return -ENODEV;
 	}
@@ -619,17 +641,57 @@ static int sec_jack_remove(struct platform_device *pdev)
 	return 0;
 }
 
-static struct platform_driver sec_jack_driver = {
-	.probe = sec_jack_probe,
-	.remove = sec_jack_remove,
-	.driver = {
-			.name = "sec_jack",
-			.owner = THIS_MODULE,
-		   },
+static int sec_jack_suspend(struct device *dev)
+{
+	struct sec_jack_info *hi = dev_get_drvdata(dev);
+	int ret;
+
+	ret = enable_irq_wake(hi->det_irq);
+
+	pr_info("%s: enable_irq_wake(%d)\n", __func__, ret);
+	disable_irq(hi->det_irq);
+
+	return 0;
+}
+
+static int sec_jack_resume(struct device *dev)
+{
+	struct sec_jack_info *hi = dev_get_drvdata(dev);
+	int ret;
+
+	ret = disable_irq_wake(hi->det_irq);
+
+	pr_info("%s: disable_irq_wake(%d)\n", __func__, ret);
+	enable_irq(hi->det_irq);
+
+	return 0;
+}
+
+static const struct dev_pm_ops sec_jack_dev_pm_ops = {
+	.suspend	= sec_jack_suspend,
+	.resume		= sec_jack_resume,
 };
+
+static struct platform_driver sec_jack_driver = {
+	.probe	= sec_jack_probe,
+	.remove	= sec_jack_remove,
+	.driver	= {
+		.name = "sec_jack",
+		.owner = THIS_MODULE,
+		.pm	= &sec_jack_dev_pm_ops,
+	},
+};
+
 static int __init sec_jack_init(void)
 {
-	return platform_driver_register(&sec_jack_driver);
+	int ret;
+
+	ret =  platform_driver_register(&sec_jack_driver);
+
+	if (ret)
+		pr_err("%s: Failed to add sec jack driver\n", __func__);
+
+	return ret;
 }
 
 static void __exit sec_jack_exit(void)
